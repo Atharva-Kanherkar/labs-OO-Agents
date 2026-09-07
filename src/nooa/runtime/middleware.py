@@ -81,7 +81,9 @@ class AgentCallContext(BaseModel):
        is any of:
 
        - synchronous (``def``) — cannot be wrapped by an async chain;
-       - marked ``@no_trace``, sync or async — the metaclass does not wrap it;
+       - marked ``@no_trace`` and left unwrapped by the metaclass — a
+         ``@no_trace`` method that is generated or carries ``@strategy`` keeps
+         its async wrapper, and the middleware chain with it;
        - a ``staticmethod`` or ``classmethod`` — skipped as a non-plain function;
        - inherited from a base that is not itself an ``Agent``.
 
@@ -91,9 +93,10 @@ class AgentCallContext(BaseModel):
        not apply.
 
        Declare a capability as a traced ``async def`` method to place it under
-       middleware, or enforce the policy inside the method body. A
-       ``RuntimeWarning`` naming the uncovered methods is emitted when
-       ``agent_call`` middleware is registered on a class that has any.
+       middleware, or enforce the policy inside the method body. When
+       ``agent_call`` middleware is registered, a ``RuntimeWarning`` names the
+       uncovered methods the first time a covered method runs, and each
+       traced sync method warns on its own first call.
 
     Attributes:
         agent: The agent instance.

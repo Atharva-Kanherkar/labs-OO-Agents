@@ -543,8 +543,9 @@ def _warn_uncovered_agent_methods(agent: Any, event_manager: Any) -> None:
     warning per-call is what closes the gaps that the sync wrapper cannot see:
     an unwrapped method has no wrapper in which to warn.
 
-    Reported once per (event manager, class). Diagnostic failures are swallowed;
-    a warning raised as an error by ``-W error`` is not.
+    Reported once per (event manager, class), and never for a method the
+    per-call sync path has already named. Diagnostic failures are swallowed; a
+    warning raised as an error by ``-W error`` is not.
     """
     cls = type(agent)
     key = f"scan:{cls.__module__}.{cls.__qualname__}"
@@ -552,7 +553,14 @@ def _warn_uncovered_agent_methods(agent: Any, event_manager: Any) -> None:
         reported = event_manager._agent_call_bypass_reported
         if key in reported:
             return
-        uncovered = _uncovered_agent_methods(cls)
+        # A sync method called before any covered entry point has already been
+        # announced by the per-call path; listing it again here would report
+        # the same method twice.
+        uncovered = [
+            name
+            for name in _uncovered_agent_methods(cls)
+            if f"call:{cls.__qualname__}.{name}" not in reported
+        ]
         if not uncovered:
             reported.add(key)
             return
@@ -565,7 +573,7 @@ def _warn_uncovered_agent_methods(agent: Any, event_manager: Any) -> None:
             f"agent_call middleware is registered, but it does not apply to these "
             f"methods on {cls.__name__}: {listing}. Middleware is async and only "
             f"wraps async agent methods that the metaclass instruments, so synchronous "
-            f"methods, @no_trace methods, staticmethod/classmethod, and methods "
+            f"methods, unwrapped @no_trace methods, staticmethod/classmethod, and methods "
             f"inherited from non-Agent bases all execute outside it. {_BYPASS_REMEDY}"
         )
     except Exception:  # noqa: BLE001

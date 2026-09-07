@@ -293,15 +293,18 @@ class EventManager:
 
         .. warning::
            ``agent_call`` middleware only wraps async agent methods that the
-           metaclass instruments. Sync (``def``) methods, ``@no_trace`` methods,
-           ``staticmethod`` / ``classmethod``, and methods inherited from
-           non-Agent bases all execute outside it, so a guard registered here
-           will not block them — including when generated CodeAct Python calls
-           them. Declare such a capability as a traced ``async def`` method to
-           bring it under middleware, or enforce the policy inside the method
-           body. Registering ``agent_call`` middleware on a class that has any
-           uncovered methods emits a ``RuntimeWarning`` naming them. See
-           :class:`~nooa.runtime.middleware.AgentCallContext`.
+           metaclass instruments. Sync (``def``) methods, ``@no_trace`` methods
+           the metaclass leaves unwrapped, ``staticmethod`` / ``classmethod``,
+           and methods inherited from non-Agent bases all execute outside it,
+           so a guard registered here will not block them — including when
+           generated CodeAct Python calls them. (A ``@no_trace`` method that is
+           generated or carries ``@strategy`` keeps its async wrapper and stays
+           covered.) Declare such a capability as a traced ``async def`` method
+           to bring it under middleware, or enforce the policy inside the
+           method body. With ``agent_call`` middleware registered, a
+           ``RuntimeWarning`` names the uncovered methods the first time a
+           covered method runs, and each traced sync method warns on its own
+           first call. See :class:`~nooa.runtime.middleware.AgentCallContext`.
 
         Args:
             kind: ``"agent_call"``, ``"llm_call"``, or ``"execute_python"``.

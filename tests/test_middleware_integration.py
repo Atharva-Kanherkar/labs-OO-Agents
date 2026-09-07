@@ -1183,6 +1183,105 @@ class TestAgentCallMiddlewareCoverage:
         with pytest.warns(RuntimeWarning):
             second.helper()
 
+    @pytest.mark.asyncio
+    async def test_scan_does_not_repeat_a_method_the_per_call_path_reported(self):
+        """A sync method called before any covered entry point is named once.
+
+        The per-call path reports it at the call site; the class scan that runs
+        when a covered method later starts must not list it a second time.
+        """
+
+        class A(Agent, llm=_TEST_LLM):
+            def helper(self) -> str:
+                """A plain sync helper."""
+                return "ok"
+
+            async def entry(self) -> str:
+                """Traced async entry point."""
+                return "entry"
+
+        agent = A()
+        agent.event_manager.intercept("agent_call", _passthrough)
+
+        with pytest.warns(RuntimeWarning, match=r"A\.helper"):
+            agent.helper()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            assert await agent.entry() == "entry"
+            # The scan is complete: later sync calls stay quiet too.
+            assert agent.helper() == "ok"
+
+    @pytest.mark.asyncio
+    async def test_scan_still_lists_methods_the_per_call_path_has_not_seen(self):
+        """Filtering already-reported methods must not hide the rest."""
+
+        class A(Agent, llm=_TEST_LLM):
+            def seen_first(self) -> str:
+                """Called directly before the entry point."""
+                return "seen"
+
+            def never_called(self) -> str:
+                """Only the class scan can find this one."""
+                return "never"
+
+            async def entry(self) -> str:
+                """Traced async entry point."""
+                return "entry"
+
+        agent = A()
+        agent.event_manager.intercept("agent_call", _passthrough)
+
+        with pytest.warns(RuntimeWarning, match=r"A\.seen_first"):
+            agent.seen_first()
+
+        with pytest.warns(RuntimeWarning) as caught:
+            await agent.entry()
+
+        text = " ".join(str(w.message) for w in caught)
+        assert "never_called" in text
+        assert "seen_first" not in text
+
+    @pytest.mark.asyncio
+    async def test_no_trace_with_strategy_keeps_agent_call_middleware(self):
+        """``@no_trace`` only removes coverage when the method is left unwrapped.
+
+        ``@strategy`` builds the async wrapper itself, in either decorator
+        order, so the method still runs through ``agent_call`` middleware and
+        the coverage scan must not report it.
+        """
+        from nooa import strategy
+        from nooa.metaclass import no_trace
+
+        seen = []
+
+        async def spy(ctx, nxt):
+            seen.append(ctx.method_name)
+            return await nxt(ctx)
+
+        class A(Agent, llm=_TEST_LLM):
+            @no_trace
+            @strategy()
+            async def quiet_outer(self) -> str:
+                """no_trace applied outside strategy."""
+                return "outer"
+
+            @strategy()
+            @no_trace
+            async def quiet_inner(self) -> str:
+                """no_trace applied inside strategy."""
+                return "inner"
+
+        agent = A()
+        agent.event_manager.intercept("agent_call", spy)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            assert await agent.quiet_outer() == "outer"
+            assert await agent.quiet_inner() == "inner"
+
+        assert seen == ["quiet_outer", "quiet_inner"]
+
 
 class TestAgentCallBypassWarningDelivery:
     """The warning has to survive nooa's NullHandler and CodeAct's stderr capture."""
